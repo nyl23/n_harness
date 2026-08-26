@@ -458,10 +458,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if route == "/api/state":
-            try:
-                body = json.dumps(self._state(), ensure_ascii=False).encode("utf-8")
-            except UnicodeEncodeError:
-                body = json.dumps(self._state(), ensure_ascii=True).encode("utf-8")
+            body = self._json_bytes(self._state())
             self._headers(200, "application/json; charset=utf-8", len(body))
             self.wfile.write(body)
             return
@@ -529,11 +526,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self._reply(200, {"ok": True, "result": result})
 
-    def _reply(self, status: int, value: dict[str, object]) -> None:
+    @staticmethod
+    def _json_bytes(value: object) -> bytes:
+        """서로게이트가 섞여도 유효한 UTF-8 JSON 바이트를 돌려준다."""
+        text = json.dumps(value, ensure_ascii=False)
         try:
-            body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+            return text.encode("utf-8")
         except UnicodeEncodeError:
-            body = json.dumps(value, ensure_ascii=True).encode("utf-8")
+            return json.dumps(value, ensure_ascii=True).encode("utf-8")
+
+    def _reply(self, status: int, value: dict[str, object]) -> None:
+        body = self._json_bytes(value)
         self._headers(status, "application/json; charset=utf-8", len(body))
         self.wfile.write(body)
 

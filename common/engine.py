@@ -166,8 +166,35 @@ def _load_unlocked() -> Dict[str, Any]:
     return value
 
 
+def dumps_safe(value: Any, **kwargs: Any) -> str:
+    """서로게이트가 섞여도 utf-8로 쓸 수 있는 JSON 문자열을 돌려준다.
+
+    json.dumps(ensure_ascii=False)는 서로게이트(\\uD800-\\uDFFF)에서 예외를 던지지
+    않고 문자를 그대로 통과시킨다. 그래서 dumps만 try로 감싸면 크래시를 못 막고,
+    실제 UnicodeEncodeError는 나중에 utf-8 인코딩(파일 write) 단계에서 터진다.
+    Windows에서 surrogateescape로 읽힌 명령 출력·경로가 도구 결과에 섞이면 이
+    경로로 훅이 죽는다. 여기서 실제 utf-8 인코딩 가능성까지 확인하고, 안 되면
+    ensure_ascii=True로 서로게이트를 \\udXXX로 이스케이프해 순수 ASCII로 만든다.
+    """
+    text = json.dumps(value, ensure_ascii=False, **kwargs)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        text = json.dumps(value, ensure_ascii=True, **kwargs)
+    return text
+
+
 def _atomic_text(path: Path, content: str, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # 모든 텍스트 파일 쓰기의 단일 choke point. Windows에서 surrogateescape로 읽힌
+    # 명령 출력·경로가 어느 호출부를 거쳐 서로게이트로 흘러들든, utf-8 write에서
+    # 훅이 죽지 않도록 여기서 한 번 더 막는다. 인코딩 불가능한 문자만 U+FFFD로
+    # 치환한다. JSON 라운드트립 파일(state.json 등)은 호출부에서 dumps_safe로 이미
+    # 순수 ASCII라 이 치환에 영향받지 않는다.
+    try:
+        content.encode("utf-8")
+    except UnicodeEncodeError:
+        content = content.encode("utf-8", "replace").decode("utf-8")
     fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -186,10 +213,7 @@ def _atomic_text(path: Path, content: str, mode: int = 0o600) -> None:
 
 def _save_unlocked(state: Dict[str, Any]) -> None:
     state["updated_at"] = utc_now()
-    try:
-        blob = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-    except UnicodeEncodeError:
-        blob = json.dumps(state, ensure_ascii=True, indent=2) + "\n"
+    blob = dumps_safe(state, indent=2) + "\n"
     _atomic_text(STATE_PATH, blob)
 
 
@@ -205,10 +229,7 @@ def locked_state() -> Iterator[Dict[str, Any]]:
 def append_jsonl(path: Path, value: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        try:
-            line = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        except UnicodeEncodeError:
-            line = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        line = dumps_safe(value, separators=(",", ":"))
         handle.write(line + "\n")
         handle.flush()
         os.fsync(handle.fileno())
@@ -292,12 +313,14 @@ def payload_bytes(value: Any) -> int:
         return 0
     if isinstance(value, (bytes, bytearray)):
         return len(value)
+    # surrogatepass: Windows surrogateescape로 읽힌 도구 출력에 섞인 서로게이트가
+    # 그냥 encode("utf-8")를 크래시시킨다. 여기선 바이트 수만 세면 되므로 통과시킨다.
     if isinstance(value, str):
-        return len(value.encode("utf-8"))
+        return len(value.encode("utf-8", "surrogatepass"))
     try:
-        return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+        return len(json.dumps(value, ensure_ascii=False).encode("utf-8", "surrogatepass"))
     except (TypeError, ValueError, UnicodeEncodeError):
-        return len(str(value).encode("utf-8"))
+        return len(str(value).encode("utf-8", "surrogatepass"))
 
 
 def append_event(value: Dict[str, Any]) -> None:
@@ -798,11 +821,7 @@ def record_private_evidence(eid: str, phase: str, hook: Dict[str, Any]) -> str:
             value = {}
     value[phase] = hook
     value["event_id"] = eid
-    try:
-        content = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-    except UnicodeEncodeError:
-        # 서로게이트 문자가 섞인 경우 ensure_ascii=True로 안전하게 직렬화
-        content = json.dumps(value, ensure_ascii=True, indent=2) + "\n"
+    content = dumps_safe(value, indent=2) + "\n"
     _atomic_text(path, content, mode=0o600)
     return str(path.relative_to(ROOT))
 

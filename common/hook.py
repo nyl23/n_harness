@@ -55,8 +55,17 @@ def emit(value: Dict[str, Any]) -> None:
         text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     except UnicodeEncodeError:
         text = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
-    sys.stdout.write(text)
-    sys.stdout.write("\n")
+    # stdout 코덱이 cp1252/cp949 같은 non-UTF8이면 sys.stdout.write가 한글에서
+    # UnicodeEncodeError를 던진다. pre 훅에서는 이게 fail-open(도구가 판단 없이
+    # 실행)으로 이어지므로 코덱에 상관없이 UTF-8 바이트로 직접 내보낸다.
+    data = (text + "\n").encode("utf-8", errors="replace")
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write(data)
+        buffer.flush()
+    else:
+        sys.stdout.write(data.decode("utf-8", errors="replace"))
+        sys.stdout.flush()
 
 
 def agent_key(hook: Dict[str, Any]) -> str:
@@ -331,7 +340,8 @@ def main() -> None:
     elif mode == "prepare-run":
         if len(sys.argv) < 3:
             raise SystemExit("prepare-run: 실행 폴더 경로가 필요합니다")
-        print(json.dumps(prepare_run(Path(sys.argv[2])), ensure_ascii=False))
+        from engine import dumps_safe as _dumps_safe
+        print(_dumps_safe(prepare_run(Path(sys.argv[2]))))
     elif mode == "post":
         _finish(hook, failed=False)
     elif mode == "failure":

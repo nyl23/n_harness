@@ -332,6 +332,106 @@ class ScopeMatching(unittest.TestCase):
         self.assertEqual(decision_of(pre("Bash", {"command": "nmap 192.168.001.5"})), "deny")
 
 
+class SurrogateResilience(unittest.TestCase):
+    """Windows에서 surrogateescape로 읽힌 명령 출력에는 lone surrogate(\\uD800-\\uDFFF)가
+    섞인다. json.dumps(ensure_ascii=False)는 이걸 예외 없이 통과시키므로, 실제 크래시는
+    나중의 utf-8 write/encode에서 터진다. 그 지점들을 훅이 살아서 넘겨야 한다.
+    크래시하면 pre는 fail-closed로 정상 행동까지 막고 post는 기록이 끊긴다.
+    """
+
+    SURROGATE = "out abc\udced\udcba def 한글"
+
+    def setUp(self) -> None:
+        with engine.locked_state() as state:
+            state.update(engine.default_state())
+        with engine.locked_state() as state:
+            engine.register_initial_target(state, "192.0.2.10", "stage1")
+            engine.render_unlocked(state)
+
+    def test_payload_bytes_survives_surrogates(self) -> None:
+        # value.encode("utf-8")가 서로게이트에서 죽으면 io_bytes 집계 전체가 멈춘다.
+        self.assertIsInstance(engine.payload_bytes(self.SURROGATE), int)
+        self.assertIsInstance(engine.payload_bytes({"r": self.SURROGATE}), int)
+
+    def test_dumps_safe_output_is_utf8_encodable(self) -> None:
+        text = engine.dumps_safe({"r": self.SURROGATE})
+        # 반환값은 반드시 utf-8로 인코딩 가능해야 한다(파일/소켓 write가 그걸 한다).
+        text.encode("utf-8")
+
+    def test_atomic_text_survives_surrogate_content(self) -> None:
+        target = engine.WORK_DIR / "surrogate_probe.txt"
+        engine._atomic_text(target, self.SURROGATE)
+        # 파일은 유효한 utf-8이어야 하고(서로게이트 미치환 시 read가 깨진다) 크래시가 없어야 한다.
+        target.read_text(encoding="utf-8")
+
+    def test_pre_hook_survives_surrogates_in_tool_input(self) -> None:
+        """PreToolUse가 가장 위험하다: 크래시하면 fail-closed로 정상 행동까지 막는다.
+
+        json.dumps(ensure_ascii=False)는 서로게이트를 예외 없이 통과시키므로,
+        try/except UnicodeEncodeError로 json.dumps만 감싸는 건 효과가 없다.
+        실제 크래시는 그 뒤의 stdout.write/file.write에서 터진다.
+        """
+        clear_pending()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            hook.run_pre_fail_closed(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "curl http://192.0.2.10/\udcec\udcb4\udcac",
+                        "description": "\udced\udcb4\udcac surrogate path",
+                    },
+                    "tool_use_id": "tu-surro-pre",
+                    "agent_id": "main",
+                }
+            )
+        raw = buffer.getvalue().strip()
+        # 크래시 없이 끝나야 하고, deny가 나오면 안 된다(정상 IP이므로).
+        if raw:
+            result = json.loads(raw)
+            self.assertNotEqual(
+                decision_of(result),
+                "deny",
+                "서로게이트 때문에 fail-closed deny가 나오면 안 된다",
+            )
+
+    def test_pre_hook_deny_path_survives_surrogates(self) -> None:
+        """범위 밖 IP + 서로게이트 조합에서도 크래시 없이 deny를 내야 한다."""
+        clear_pending()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            hook.run_pre_fail_closed(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "curl http://203.0.113.55/\udcec\udcb4\udcac",
+                    },
+                    "tool_use_id": "tu-surro-deny",
+                    "agent_id": "main",
+                }
+            )
+        result = json.loads(buffer.getvalue().strip())
+        self.assertEqual(decision_of(result), "deny")
+
+    def test_finish_hook_records_surrogate_output_without_crashing(self) -> None:
+        clear_pending()
+        before = engine.EVENTS_PATH.read_text(encoding="utf-8").count("\n") if engine.EVENTS_PATH.exists() else 0
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            hook._finish(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "echo 한글", "description": "한글 설명"},
+                    "tool_use_id": "tu-surrogate",
+                    "agent_id": "main",
+                    "tool_response": self.SURROGATE,
+                },
+                failed=False,
+            )
+        after = engine.EVENTS_PATH.read_text(encoding="utf-8").count("\n")
+        self.assertGreater(after, before)  # 기록이 실제로 한 줄 늘었다
+
+
 class DashboardCsrf(unittest.TestCase):
     """/api/target은 상태를 바꾸는 엔드포인트다.
 

@@ -15,6 +15,7 @@ from engine import (
     append_jsonl,
     bootstrap,
     decide_target,
+    dumps_safe,
     locked_state,
     propose_target,
     register_initial_target,
@@ -78,14 +79,13 @@ def command_target_propose(args: argparse.Namespace) -> None:
     tid, status, created = propose_target(args.value, args.evidence, args.reason)
     if not created:
         print(
-            json.dumps(
+            dumps_safe(
                 {"id": tid, "value": args.value, "status": status, "created": False},
-                ensure_ascii=False,
             )
         )
         return
     print(
-        json.dumps(
+        dumps_safe(
             {
                 "id": tid,
                 "value": args.value,
@@ -93,7 +93,6 @@ def command_target_propose(args: argparse.Namespace) -> None:
                 "created": True,
                 "note": "승인 대기. 대시보드에서 승인하거나 사용자가 승인하기 전까지 이 대상으로의 외부 행동은 차단된다.",
             },
-            ensure_ascii=False,
         )
     )
 
@@ -103,7 +102,7 @@ def command_target_approve(args: argparse.Namespace) -> None:
         result = decide_target(args.id, "approved", args.reason or "", args.stage)
     except KeyError:
         raise SystemExit("등록되지 않은 대상입니다: " + args.id)
-    print(json.dumps(result, ensure_ascii=False))
+    print(dumps_safe(result))
 
 
 def command_target_reject(args: argparse.Namespace) -> None:
@@ -111,14 +110,14 @@ def command_target_reject(args: argparse.Namespace) -> None:
         result = decide_target(args.id, "rejected", args.reason or "")
     except KeyError:
         raise SystemExit("등록되지 않은 대상입니다: " + args.id)
-    print(json.dumps(result, ensure_ascii=False))
+    print(dumps_safe(result))
 
 
 def command_target_list(_args: argparse.Namespace) -> None:
     with locked_state() as state:
         targets = {tid: dict(item) for tid, item in state.get("targets", {}).items()}
         current = state.get("current_stage")
-    print(json.dumps({"current_stage": current, "targets": targets}, ensure_ascii=False, indent=2))
+    print(dumps_safe({"current_stage": current, "targets": targets}, indent=2))
 
 
 def command_resolve(args: argparse.Namespace) -> None:
@@ -233,7 +232,7 @@ def command_status(_args: argparse.Namespace) -> None:
             "clues": len(state.get("clues", [])),
             "branches": len(state.get("branches", {})),
         }
-    print(json.dumps(result, ensure_ascii=False))
+    print(dumps_safe(result))
 
 
 def build_parser() -> argparse.ArgumentParser:
