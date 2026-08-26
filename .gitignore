@@ -1,0 +1,19 @@
+# Run data (각 실행은 runs/<run_id>/ 아래에 격리)
+runs/*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets
+*.key
+*.pem

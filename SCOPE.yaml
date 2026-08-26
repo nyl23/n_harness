@@ -1,0 +1,20 @@
+# Scope Configuration Template
+# 실행 시작 전 이 파일을 편집하여 대상과 범위를 설정한다.
+# launcher.py가 이 파일을 engagement/ 폴더에 복사한다.
+#
+# Claude는 세션 시작 시 이 파일을 읽고 mapctl init을 호출한다:
+#   python3 "$REDTEAM_COMMON/mapctl.py" init \
+#     --target "<target>" --scope "<scope>" --goal "<goal>"
+
+target: "10.10.10.x"           # 시작 대상 IP
+scope: "10.10.10.0/24"         # 승인된 범위 (CIDR 또는 설명)
+goal: "root 권한 획득"          # 최종 목표 (개방형이면 "최대한 깊이 침투")
+
+# 추가 설정 (선택)
+environment:
+  os: "Windows 11"             # 공격 머신 OS
+  tools: "claude-code"         # 실행 환경
+
+notes: |
+  - Lab 환경 전용
+  - 추가 발견 대상은 대시보드에서 승인

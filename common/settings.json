@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__",
+            "args": [
+              "__HARNESS_COMMON__/hook.py",
+              "session"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__",
+            "args": [
+              "__HARNESS_COMMON__/hook.py",
+              "pre"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__",
+            "args": [
+              "__HARNESS_COMMON__/hook.py",
+              "post"
+            ],
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__",
+            "args": [
+              "__HARNESS_COMMON__/hook.py",
+              "failure"
+            ],
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
