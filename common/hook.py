@@ -51,7 +51,11 @@ _EMITTED = False
 def emit(value: Dict[str, Any]) -> None:
     global _EMITTED
     _EMITTED = True
-    sys.stdout.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+    try:
+        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    except UnicodeEncodeError:
+        text = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+    sys.stdout.write(text)
     sys.stdout.write("\n")
 
 
@@ -80,8 +84,15 @@ def reachable_text(hook: Dict[str, Any]) -> str:
         return ""
     try:
         return json.dumps(tool_input, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(tool_input)
+    except (TypeError, ValueError, UnicodeEncodeError):
+        # Windows에서 surrogateescape로 읽힌 경로/출력에 서로게이트 문자(\uD800-\uDFFF)가
+        # 섞이면 json.dumps(ensure_ascii=False)가 UnicodeEncodeError를 던진다.
+        # 서로게이트를 제거하고 재시도한다. IP 추출에는 ASCII만 필요하므로 손실 없다.
+        try:
+            cleaned = json.dumps(tool_input, ensure_ascii=True)
+            return cleaned
+        except (TypeError, ValueError, UnicodeEncodeError):
+            return str(tool_input).encode("utf-8", errors="replace").decode("utf-8")
 
 
 # 실패 훅과 성공 훅은 결과를 담는 키가 다르다. 먼저 있는 키 하나를 결과로 본다.

@@ -458,7 +458,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if route == "/api/state":
-            body = json.dumps(self._state(), ensure_ascii=False).encode("utf-8")
+            try:
+                body = json.dumps(self._state(), ensure_ascii=False).encode("utf-8")
+            except UnicodeEncodeError:
+                body = json.dumps(self._state(), ensure_ascii=True).encode("utf-8")
             self._headers(200, "application/json; charset=utf-8", len(body))
             self.wfile.write(body)
             return
@@ -527,7 +530,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._reply(200, {"ok": True, "result": result})
 
     def _reply(self, status: int, value: dict[str, object]) -> None:
-        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        try:
+            body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            body = json.dumps(value, ensure_ascii=True).encode("utf-8")
         self._headers(status, "application/json; charset=utf-8", len(body))
         self.wfile.write(body)
 

@@ -186,7 +186,11 @@ def _atomic_text(path: Path, content: str, mode: int = 0o600) -> None:
 
 def _save_unlocked(state: Dict[str, Any]) -> None:
     state["updated_at"] = utc_now()
-    _atomic_text(STATE_PATH, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    try:
+        blob = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    except UnicodeEncodeError:
+        blob = json.dumps(state, ensure_ascii=True, indent=2) + "\n"
+    _atomic_text(STATE_PATH, blob)
 
 
 @contextmanager
@@ -201,7 +205,11 @@ def locked_state() -> Iterator[Dict[str, Any]]:
 def append_jsonl(path: Path, value: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n")
+        try:
+            line = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except UnicodeEncodeError:
+            line = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        handle.write(line + "\n")
         handle.flush()
         os.fsync(handle.fileno())
     try:
@@ -288,7 +296,7 @@ def payload_bytes(value: Any) -> int:
         return len(value.encode("utf-8"))
     try:
         return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, UnicodeEncodeError):
         return len(str(value).encode("utf-8"))
 
 
@@ -790,7 +798,12 @@ def record_private_evidence(eid: str, phase: str, hook: Dict[str, Any]) -> str:
             value = {}
     value[phase] = hook
     value["event_id"] = eid
-    _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n", mode=0o600)
+    try:
+        content = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    except UnicodeEncodeError:
+        # 서로게이트 문자가 섞인 경우 ensure_ascii=True로 안전하게 직렬화
+        content = json.dumps(value, ensure_ascii=True, indent=2) + "\n"
+    _atomic_text(path, content, mode=0o600)
     return str(path.relative_to(ROOT))
 
 
